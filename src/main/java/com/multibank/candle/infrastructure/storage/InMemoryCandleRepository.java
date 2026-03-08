@@ -6,50 +6,54 @@ import com.multibank.candle.domain.model.Interval;
 import com.multibank.candle.domain.port.CandleRepository;
 import org.springframework.stereotype.Repository;
 
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 /**
- * In-memory candle store backed by a {@link ConcurrentHashMap}.
+ * In-memory candle store with O(log n) range queries.
  *
- * <h3>Design notes</h3>
- * <ul>
- *   <li>{@link CandleKey} already encodes {@code (symbol, interval, alignedTime)}, so the map
- *       key is fully qualified — no secondary index is needed.</li>
- *   <li>{@code save} uses {@code put}, which is O(1) and thread-safe.</li>
- *   <li>Range queries stream and filter — acceptable for an in-memory store with a bounded
- *       number of historical candles. A real time-series DB (TimescaleDB) would use an index
- *       scan instead.</li>
- *   <li>Results are returned already sorted ascending by time; sorting here is defensive and
- *       cheap.</li>
- * </ul>
+ * <h3>Structure</h3>
+ * <pre>
+ * ConcurrentHashMap                         ← outer: keyed by (symbol, interval)
+ *   └─ ConcurrentSkipListMap&lt;Long, Candle&gt;  ← inner: keyed by alignedTime, sorted
+ * </pre>
+ *
+ * <p>Range queries use {@link ConcurrentSkipListMap#subMap} which is O(log n + result size)
+ * rather than a full O(n) scan. Both maps are lock-free for reads and thread-safe for writes.
  */
 @Repository
 public class InMemoryCandleRepository implements CandleRepository {
 
-    private final ConcurrentMap<CandleKey, Candle> store = new ConcurrentHashMap<>();
+    // Composite key for the outer map — avoids string concatenation
+    private record SeriesKey(String symbol, Interval interval) {}
+
+    private final ConcurrentMap<SeriesKey, ConcurrentSkipListMap<Long, Candle>> store =
+            new ConcurrentHashMap<>();
 
     @Override
     public void save(CandleKey key, Candle candle) {
-        store.put(key, candle);
+        store.computeIfAbsent(new SeriesKey(key.symbol(), key.interval()),
+                        k -> new ConcurrentSkipListMap<>())
+                .put(key.alignedTime(), candle);
     }
 
     @Override
     public List<Candle> findBySymbolAndIntervalBetween(String symbol, Interval interval,
                                                         long from, long to) {
-        return store.entrySet().stream()
-                .filter(e -> e.getKey().symbol().equals(symbol))
-                .filter(e -> e.getKey().interval() == interval)
-                .filter(e -> e.getKey().alignedTime() >= from && e.getKey().alignedTime() <= to)
-                .map(e -> e.getValue())
-                .sorted(Comparator.comparingLong(Candle::time))
-                .toList();
+        ConcurrentSkipListMap<Long, Candle> series =
+                store.get(new SeriesKey(symbol, interval));
+
+        if (series == null) return List.of();
+
+        // subMap is O(log n + result size) — backed by the skip list, no full scan
+        return new ArrayList<>(series.subMap(from, true, to, true).values());
     }
 
     /** Exposed for testing. */
     public int size() {
-        return store.size();
+        return store.values().stream().mapToInt(ConcurrentSkipListMap::size).sum();
     }
 }

@@ -16,7 +16,7 @@ candle:
     interval-ms: 1000   # how often the flush scheduler runs
 
 simulator:
-  rate-ms: 200          # how often a synthetic tick is generated
+  rate-ms: 50           # 20 ticks/second total (~6-7 per symbol) — demonstrates high-frequency ingestion
   symbols: BTC-USD,ETH-USD,SOL-USD
 
 logging:
