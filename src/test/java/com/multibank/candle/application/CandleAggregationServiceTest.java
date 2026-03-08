@@ -9,8 +9,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -69,18 +69,6 @@ class CandleAggregationServiceTest {
     @DisplayName("mid-price = (bid + ask) / 2 is used as OHLCV input")
     void midPriceCalculation() {
         // bid=29000, ask=29002 → mid=29001
-        service.publish(new BidAskEvent(SYMBOL, 29_000.0, 29_002.0, TS));
-
-        // force flush by publishing to a far-future timestamp that expires buckets
-        long pastAligned = Interval.ONE_SECOND.align(TS);
-        // Manually call flush with a far-future now by exercising the flush method
-        // We test flush separately; here we just verify the accumulator snapshot.
-        CandleKey key = new CandleKey(SYMBOL, Interval.ONE_SECOND, Interval.ONE_SECOND.align(TS));
-        // The live map is package-private — we verify via flush
-        // Flush won't fire yet because ts is not expired relative to real wall clock.
-        // Instead verify that the snapshot would produce mid=29001.
-        // We do this by calling flush after injecting an "expired" accumulator via another publish
-        // at a very old timestamp (well before now).
         long ancientTs = 1_000L;
         service.publish(new BidAskEvent(SYMBOL, 29_000.0, 29_002.0, ancientTs));
         service.flush();
