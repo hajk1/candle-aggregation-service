@@ -1,6 +1,8 @@
 # Candle Aggregation Service
 
 [![CI](https://github.com/hajk1/candle-aggregation-service/actions/workflows/ci.yml/badge.svg)](https://github.com/hajk1/candle-aggregation-service/actions/workflows/ci.yml)
+![Coverage](.github/badges/jacoco.svg)
+![Branches](.github/badges/branches.svg)
 ![Java](https://img.shields.io/badge/Java-25-blue?logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.6-brightgreen?logo=springboot)
 
