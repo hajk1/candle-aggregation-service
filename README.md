@@ -1,5 +1,9 @@
 # Candle Aggregation Service
 
+[![CI](https://github.com/hajk1/candle-aggregation-service/actions/workflows/ci.yml/badge.svg)](https://github.com/hajk1/candle-aggregation-service/actions/workflows/ci.yml)
+![Java](https://img.shields.io/badge/Java-25-blue?logo=openjdk)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.6-brightgreen?logo=springboot)
+
 A Spring Boot service that ingests a continuous stream of bid/ask market data, aggregates it into OHLC candlesticks per symbol and interval, and exposes a history API compatible with TradingView Lightweight Charts.
 
 ---
