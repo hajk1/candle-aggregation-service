@@ -14,8 +14,6 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
@@ -40,7 +38,7 @@ class CandleAggregationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CandleAggregationService(repository);
+        service = new CandleAggregationService(repository, 0); // no grace period — buckets expire immediately in tests
     }
 
     @Test

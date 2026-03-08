@@ -8,6 +8,7 @@ import com.multibank.candle.domain.port.EventPublisher;
 import com.multibank.candle.infrastructure.aggregation.CandleAccumulator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -30,9 +31,9 @@ import java.util.concurrent.ConcurrentMap;
  * </ul>
  *
  * <h3>Late-event policy</h3>
- * Events that arrive for an already-finalized bucket are silently dropped (logged at WARN).
- * Re-opening closed buckets would complicate the API guarantee; a configurable
- * {@code latenessThreshold} can be added in a future iteration.
+ * A configurable grace period ({@code candle.flush.grace-period-seconds}, default 2s) keeps
+ * buckets live after their nominal close time, absorbing slightly delayed events before
+ * finalization. Events arriving after the grace period has elapsed are dropped (logged at WARN).
  */
 @Service
 public class CandleAggregationService implements EventPublisher {
@@ -41,9 +42,12 @@ public class CandleAggregationService implements EventPublisher {
 
     private final ConcurrentMap<CandleKey, CandleAccumulator> live = new ConcurrentHashMap<>();
     private final CandleRepository repository;
+    private final long gracePeriodSeconds;
 
-    public CandleAggregationService(CandleRepository repository) {
+    public CandleAggregationService(CandleRepository repository,
+                                    @Value("${candle.flush.grace-period-seconds:2}") long gracePeriodSeconds) {
         this.repository = repository;
+        this.gracePeriodSeconds = gracePeriodSeconds;
     }
 
     /**
@@ -78,7 +82,7 @@ public class CandleAggregationService implements EventPublisher {
             CandleKey key = entry.getKey();
             CandleAccumulator acc = entry.getValue();
 
-            if (acc.isExpired(nowSeconds, key.interval().getSeconds())) {
+            if (acc.isExpired(nowSeconds, key.interval().getSeconds() + gracePeriodSeconds)) {
                 var candle = acc.snapshot();
                 repository.save(key, candle);
                 log.info("Finalized candle: symbol={} interval={} time={} vol={}",

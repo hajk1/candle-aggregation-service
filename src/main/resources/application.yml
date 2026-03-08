@@ -1,6 +1,10 @@
 spring:
   application:
     name: candle-aggregation
+  task:
+    scheduling:
+      pool:
+        size: 4   # flush() and tick() run on separate threads — no mutual blocking
 
 management:
   endpoints:
@@ -13,7 +17,8 @@ management:
 
 candle:
   flush:
-    interval-ms: 1000   # how often the flush scheduler runs
+    interval-ms: 1000       # how often the flush scheduler runs
+    grace-period-seconds: 2  # hold buckets open this long after close to absorb delayed events
 
 simulator:
   rate-ms: 50           # 20 ticks/second total (~6-7 per symbol) — demonstrates high-frequency ingestion
