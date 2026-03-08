@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: candle-aggregation
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+candle:
+  flush:
+    interval-ms: 1000   # how often the flush scheduler runs
+
+simulator:
+  rate-ms: 200          # how often a synthetic tick is generated
+  symbols: BTC-USD,ETH-USD,SOL-USD
+
+logging:
+  level:
+    com.multibank.candle: DEBUG
