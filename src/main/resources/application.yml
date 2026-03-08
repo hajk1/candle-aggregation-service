@@ -1,6 +1,8 @@
 spring:
   application:
     name: candle-aggregation
+  lifecycle:
+    timeout-per-shutdown-phase: 10s  # wait up to 10s for in-flight requests before hard stop
   task:
     scheduling:
       pool:
@@ -23,6 +25,9 @@ candle:
 simulator:
   rate-ms: 50           # 20 ticks/second total (~6-7 per symbol) — demonstrates high-frequency ingestion
   symbols: BTC-USD,ETH-USD,SOL-USD
+
+server:
+  shutdown: graceful  # drain active HTTP requests before context closes
 
 logging:
   level:

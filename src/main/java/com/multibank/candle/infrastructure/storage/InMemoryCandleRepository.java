@@ -37,7 +37,7 @@ public class InMemoryCandleRepository implements CandleRepository {
     public void save(CandleKey key, Candle candle) {
         store.computeIfAbsent(new SeriesKey(key.symbol(), key.interval()),
                         k -> new ConcurrentSkipListMap<>())
-                .put(key.alignedTime(), candle);
+                .merge(key.alignedTime(), candle, Candle::merge);
     }
 
     @Override

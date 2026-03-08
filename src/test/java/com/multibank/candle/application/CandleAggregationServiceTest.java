@@ -134,4 +134,25 @@ class CandleAggregationServiceTest {
         service.flush(); // nothing to flush
         verifyNoInteractions(repository);
     }
+
+    @Test
+    @DisplayName("flushOnShutdown persists all live accumulators regardless of expiry")
+    void shutdownFlushesLiveBuckets() {
+        long nowSeconds = System.currentTimeMillis() / 1_000;
+        // Publish at current time — buckets are NOT expired yet (except 1s)
+        service.publish(new BidAskEvent(SYMBOL, 100.0, 102.0, nowSeconds));
+
+        service.flushOnShutdown();
+
+        // All intervals must be saved — shutdown does not check expiry
+        verify(repository, times(Interval.values().length)).save(any(), any());
+        assertThat(service.liveCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("flushOnShutdown on empty live map is a no-op")
+    void shutdownOnEmptyIsNoOp() {
+        service.flushOnShutdown();
+        verifyNoInteractions(repository);
+    }
 }

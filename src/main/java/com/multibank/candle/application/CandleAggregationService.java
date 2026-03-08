@@ -6,6 +6,7 @@ import com.multibank.candle.domain.model.Interval;
 import com.multibank.candle.domain.port.CandleRepository;
 import com.multibank.candle.domain.port.EventPublisher;
 import com.multibank.candle.infrastructure.aggregation.CandleAccumulator;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -91,6 +92,25 @@ public class CandleAggregationService implements EventPublisher {
             }
             return false;
         });
+    }
+
+    /**
+     * Flushes all remaining live accumulators on shutdown — including buckets that have
+     * not yet reached their nominal close time. This prevents data loss for in-flight
+     * candles when the process is stopped gracefully.
+     */
+    @PreDestroy
+    public void flushOnShutdown() {
+        log.info("Shutdown detected — flushing {} live accumulator(s)", live.size());
+        live.entrySet().removeIf(entry -> {
+            var candle = entry.getValue().snapshot();
+            repository.save(entry.getKey(), candle);
+            log.info("Shutdown flush: symbol={} interval={} time={} vol={}",
+                    entry.getKey().symbol(), entry.getKey().interval().getCode(),
+                    entry.getKey().alignedTime(), candle.volume());
+            return true;
+        });
+        log.info("Shutdown flush complete");
     }
 
     /** Exposed for testing — returns the number of currently live (in-flight) accumulators. */

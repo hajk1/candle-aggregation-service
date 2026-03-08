@@ -106,4 +106,25 @@ class InMemoryCandleRepositoryTest {
                 "BTC-USD", Interval.ONE_MINUTE, 0L, 0L);
         assertThat(result).isEmpty();
     }
+
+    @Test
+    @DisplayName("save merges into existing candle — replay correctness")
+    void saveMergesExistingCandle() {
+        CandleKey key = new CandleKey("BTC-USD", Interval.ONE_MINUTE, 1620000060L);
+        // First flush: 5 ticks, high=110, low=90
+        repo.save(key, new Candle(1620000060L, 100.0, 110.0, 90.0, 105.0, 5L));
+        // Replay arrives: 3 more ticks, even higher high, even lower low
+        repo.save(key, new Candle(1620000060L, 106.0, 120.0, 80.0, 112.0, 3L));
+
+        List<Candle> result = repo.findBySymbolAndIntervalBetween(
+                "BTC-USD", Interval.ONE_MINUTE, 1620000060L, 1620000060L);
+
+        assertThat(result).hasSize(1);
+        Candle merged = result.get(0);
+        assertThat(merged.open()).isEqualTo(100.0);   // preserved from first
+        assertThat(merged.high()).isEqualTo(120.0);   // global max
+        assertThat(merged.low()).isEqualTo(80.0);     // global min
+        assertThat(merged.close()).isEqualTo(112.0);  // from replay (last)
+        assertThat(merged.volume()).isEqualTo(8L);    // summed
+    }
 }
