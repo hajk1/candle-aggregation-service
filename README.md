@@ -13,7 +13,7 @@ A Spring Boot service that ingests a continuous stream of bid/ask market data, a
 ## Project Overview
 
 ```
-BidAskEvent stream (simulated)
+BidAskEvent stream (simulated or real feed)
       │
       ▼
 CandleAggregationService          ← implements EventPublisher port
@@ -23,21 +23,23 @@ CandleAggregationService          ← implements EventPublisher port
   ├── publish()  → fans out to all 5 intervals per tick
   └── flush()    → @Scheduled, finalizes expired buckets → CandleRepository
                                                                 │
-                                                        InMemoryCandleRepository
-                                                        ConcurrentHashMap<CandleKey, Candle>
+                                              ┌─────────────────┴──────────────────┐
+                                   InMemoryCandleRepository         TimescaleDbCandleRepository
+                                   ConcurrentSkipListMap            hypertable + upsert
+                                   (default profile)                (timescale profile)
                                                                 │
                                                         GET /history → HistoryController
 ```
 
 ### Supported intervals
 
-| Code  | Duration |
-|-------|----------|
-| `1s`  | 1 second |
-| `5s`  | 5 seconds |
-| `1m`  | 1 minute |
+| Code  | Duration   |
+|-------|------------|
+| `1s`  | 1 second   |
+| `5s`  | 5 seconds  |
+| `1m`  | 1 minute   |
 | `15m` | 15 minutes |
-| `1h`  | 1 hour |
+| `1h`  | 1 hour     |
 
 ---
 
@@ -45,9 +47,22 @@ CandleAggregationService          ← implements EventPublisher port
 
 **Prerequisites:** Java 25, Maven 3.9+
 
+### Default (in-memory storage)
+
 ```bash
-cd candle-aggregation
 mvn spring-boot:run
+```
+
+### With TimescaleDB (recommended for production)
+
+**Prerequisites:** Docker
+
+```bash
+# 1. Start TimescaleDB
+docker compose up -d
+
+# 2. Run with the timescale profile
+mvn spring-boot:run -Dspring-boot.run.profiles=timescale
 ```
 
 The service starts on **port 8080**.
@@ -55,7 +70,7 @@ The service starts on **port 8080**.
 | Endpoint | Description |
 |----------|-------------|
 | `GET /history?symbol=BTC-USD&interval=1m&from=1620000000&to=1620000600` | OHLC history |
-| `GET /actuator/health` | Health check |
+| `GET /actuator/health` | Health check — includes live aggregation metrics |
 | `GET /swagger-ui.html` | Interactive API docs |
 
 ### Example response
@@ -74,19 +89,40 @@ The service starts on **port 8080**.
 
 When no data exists for the range: `{"s": "no_data", "t": [], "o": [], ...}`
 
+### Health check response
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "aggregation": {
+      "status": "UP",
+      "details": {
+        "liveAccumulators": 15,
+        "storedCandles": 300,
+        "activeSymbols": ["BTC-USD", "ETH-USD", "SOL-USD"]
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## Running Tests
 
 ```bash
-# Unit + integration tests
+# Unit + integration tests (in-memory profile, no Docker needed)
 mvn test
 
 # Tests + coverage report + coverage gate
 mvn verify
 
-# Coverage report location
+# Coverage report
 open target/site/jacoco/index.html
+
+# TimescaleDB integration tests (requires Docker — Testcontainers pulls the image automatically)
+mvn test -Dspring.profiles.active=timescale
 ```
 
 ---
@@ -105,50 +141,65 @@ application/
   HistoryQueryService        read-side use-case
 
 infrastructure/
-  aggregation/  CandleAccumulator  — mutable, lock-protected per-bucket state
-  ingestion/    MarketDataSimulator — @Scheduled random-walk tick generator
-  storage/      InMemoryCandleRepository — ConcurrentHashMap-backed store
-  config/       OpenApiConfig
+  aggregation/  CandleAccumulator           — mutable, lock-protected per-bucket state
+  ingestion/    MarketDataSimulator          — @Scheduled random-walk tick generator
+  storage/      InMemoryCandleRepository     — ConcurrentSkipListMap, O(log n) queries
+                TimescaleDbCandleRepository  — hypertable + upsert (timescale profile)
+  config/       OpenApiConfig, AggregationHealthIndicator
 
 web/
-  HistoryController           GET /history
-  dto/HistoryResponse         columnar parallel-array response
-  exception/GlobalExceptionHandler  400 / 500 mapping
+  HistoryController            GET /history
+  dto/HistoryResponse          columnar parallel-array response
+  exception/GlobalExceptionHandler  RFC 9457 ProblemDetail errors
 ```
+
+### Storage profiles
+
+| Profile | Implementation | Query complexity | Persistence |
+|---------|---------------|-----------------|-------------|
+| default | `InMemoryCandleRepository` | O(log n + results) via `ConcurrentSkipListMap.subMap` | Lost on restart |
+| `timescale` | `TimescaleDbCandleRepository` | O(chunks in range) via TimescaleDB chunk exclusion | Durable |
+
+The `CandleRepository` port is the single switch point — no application-layer code changes when switching profiles.
 
 ---
 
 ## Assumptions & Trade-offs
 
 ### Mid-price as OHLC input
-There is no trade price in the `BidAskEvent`. Mid-price `= (bid + ask) / 2` is the standard convention for quote-only feeds and is used as the price series for OHLC computation.
+There is no trade price in the `BidAskEvent`. Mid-price `= (bid + ask) / 2` is the standard convention for quote-only feeds.
 
 ### Volume = tick count
-The spec defines volume as "number of ticks" (synthetic). This is straightforward to replace with a notional amount if the event schema is extended.
+The spec defines volume as "number of ticks" (synthetic). Straightforward to replace with a notional amount if the event schema is extended.
 
-### Concurrency strategy: per-bucket ReentrantLock
-OHLCV has six correlated fields. Per-field atomics (e.g. `AtomicDouble`) cannot maintain invariants like `low ≤ close ≤ high` across a concurrent read. A single narrow lock scoped to one accumulator is both simpler and correct. The `ConcurrentHashMap` provides lock-free deduplication of accumulator creation via `computeIfAbsent`.
+### Concurrency: per-bucket ReentrantLock
+OHLCV has six correlated fields. Per-field atomics cannot maintain invariants like `low ≤ close ≤ high` across concurrent reads. A single narrow lock scoped to one accumulator is correct and avoids cross-symbol contention entirely.
 
-### Flush granularity
-The flush scheduler runs every 1 second (configurable via `candle.flush.interval-ms`). Candles are finalized at most `flushInterval` after their bucket closes — not at the exact boundary. This is acceptable for a historical query API. For true real-time streaming, a bucket-transition-on-event approach would be needed.
+### Flush granularity + grace period
+The flush scheduler runs every 1 second (`candle.flush.interval-ms`). A configurable grace period (`candle.flush.grace-period-seconds`, default 2s) holds buckets open after their nominal close to absorb delayed events before finalization.
 
-### Late events are dropped
-Events arriving for an already-finalized bucket are silently dropped (logged at WARN). Reopening closed buckets would break the API's monotonicity guarantee. A configurable `latenessThreshold` can be added in a future iteration.
+### Late events are merged, not dropped
+Events arriving after a bucket is flushed recreate the accumulator. On the next flush, `Candle.merge()` / `ON CONFLICT DO UPDATE` merges the new data into the existing candle — no split candles, no data loss.
 
-### In-memory storage only
-Data does not survive restarts. The `CandleRepository` port is the single abstraction point — a TimescaleDB implementation can be added behind a Spring profile (`@Profile("timescale")`) without touching any application-layer code.
+### Graceful shutdown
+`@PreDestroy` flushes all live accumulators before the JVM exits. `server.shutdown=graceful` drains in-flight HTTP requests first.
 
 ### Time-alignment uses event timestamp
-`alignedTime = (eventTimestamp / intervalSeconds) * intervalSeconds` — deterministic floor division on the event's own timestamp, no wall-clock dependency. This handles out-of-order events within the same bucket correctly.
+`alignedTime = (eventTimestamp / intervalSeconds) * intervalSeconds` — deterministic floor division, no wall-clock dependency. Out-of-order events within the same bucket are handled correctly.
 
-### Simulated data source
-The `MarketDataSimulator` uses a geometric random walk (±0.05% per tick) seeded at realistic prices (BTC ~$30,000, ETH ~$2,000). Replacing it with Kafka or a WebSocket feed requires implementing a new `@Component` that calls `EventPublisher.publish()` — no other changes.
+### Simulated data source is opt-out
+`MarketDataSimulator` is guarded by `@ConditionalOnProperty(simulator.enabled, default=true)`. Set `simulator.enabled=false` when connecting a real feed (Kafka, WebSocket) — no other changes required.
 
 ---
 
 ## Bonus Features
 
-- **OpenAPI / Swagger UI** — auto-generated interactive docs at `/swagger-ui.html`
-- **Spring Actuator** — health/metrics at `/actuator/health`
-- **JaCoCo coverage gate** — build fails below 65% line / 65% branch coverage; core classes (`CandleAccumulator`, `CandleAggregationService`) require ≥ 90% line coverage
-- **ProblemDetail (RFC 9457)** — structured error responses with `title` and `detail` fields
+- **TimescaleDB storage** — hypertable with chunk exclusion for O(log n) range queries; upsert handles replay safely
+- **Graceful shutdown** — `@PreDestroy` flush + `server.shutdown=graceful`
+- **Grace period for delayed events** — configurable window before bucket finalization
+- **Late-event WARN logging** — logs symbol, interval, and delay in seconds
+- **Custom health indicator** — `/actuator/health` reports live accumulators, stored candles, and active symbols
+- **OpenAPI / Swagger UI** — interactive docs at `/swagger-ui.html`
+- **JaCoCo coverage gate** — build fails below 65% line/branch; core classes require ≥ 90%
+- **RFC 9457 ProblemDetail** — structured error responses
+- **GitHub Actions CI** — builds, tests, enforces coverage, and auto-commits coverage badges
