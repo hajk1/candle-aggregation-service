@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -54,19 +55,38 @@ public class CandleAggregationService implements EventPublisher {
     /**
      * Accepts a raw tick and routes it to the appropriate accumulator for every interval.
      * Mid-price = (bid + ask) / 2 is the standard convention when no trade price exists.
+     *
+     * <p>If the event timestamp places it beyond the grace period of an already-flushed bucket,
+     * it is treated as a late event and logged at WARN. It is still processed — the accumulator
+     * is recreated and will be merged into the existing candle on the next flush.
      */
     @Override
     public void publish(BidAskEvent event) {
         double mid = (event.bid() + event.ask()) / 2.0;
+        long nowSeconds = Instant.now().getEpochSecond();
         log.debug("Received tick: symbol={} mid={} ts={}", event.symbol(), mid, event.timestamp());
 
         for (Interval interval : Interval.values()) {
             long aligned = interval.align(event.timestamp());
-            CandleKey key = new CandleKey(event.symbol(), interval, aligned);
+            long bucketCloseTime = aligned + interval.getSeconds();
 
+            if (nowSeconds > bucketCloseTime + gracePeriodSeconds) {
+                log.warn("Late event: symbol={} interval={} eventTs={} delaySeconds={}",
+                        event.symbol(), interval.getCode(), event.timestamp(),
+                        nowSeconds - bucketCloseTime);
+            }
+
+            CandleKey key = new CandleKey(event.symbol(), interval, aligned);
             CandleAccumulator acc = live.computeIfAbsent(key, k -> new CandleAccumulator(aligned));
             acc.apply(mid);
         }
+    }
+
+    /** Returns the set of symbols currently being tracked (have live accumulators). */
+    public Set<String> activeSymbols() {
+        return live.keySet().stream()
+                .map(CandleKey::symbol)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     /**

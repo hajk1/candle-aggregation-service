@@ -111,6 +111,17 @@ class HistoryControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("actuator health reports aggregation details")
+    void healthEndpointReportsAggregationDetails() {
+        ResponseEntity<String> resp = rest.getForEntity("/actuator/health", String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("aggregation");
+        assertThat(resp.getBody()).contains("liveAccumulators");
+        assertThat(resp.getBody()).contains("storedCandles");
+    }
+
+    @Test
     @DisplayName("candles are returned sorted ascending by time regardless of insertion order")
     void sortedAscending() {
         ResponseEntity<HistoryResponse> resp = rest.getForEntity(
