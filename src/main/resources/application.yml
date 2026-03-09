@@ -1,6 +1,10 @@
 spring:
   application:
     name: candle-aggregation
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
   lifecycle:
     timeout-per-shutdown-phase: 10s  # wait up to 10s for in-flight requests before hard stop
   task:

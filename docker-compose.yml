@@ -1,0 +1,19 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: candles
+      POSTGRES_USER: candles
+      POSTGRES_PASSWORD: candles
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U candles -d candles"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  timescaledb_data:

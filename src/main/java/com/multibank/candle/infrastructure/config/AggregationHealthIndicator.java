@@ -1,7 +1,7 @@
 package com.multibank.candle.infrastructure.config;
 
 import com.multibank.candle.application.CandleAggregationService;
-import com.multibank.candle.infrastructure.storage.InMemoryCandleRepository;
+import com.multibank.candle.domain.port.CandleRepository;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
@@ -25,10 +25,10 @@ import org.springframework.stereotype.Component;
 public class AggregationHealthIndicator implements HealthIndicator {
 
     private final CandleAggregationService aggregationService;
-    private final InMemoryCandleRepository repository;
+    private final CandleRepository repository;
 
     public AggregationHealthIndicator(CandleAggregationService aggregationService,
-                                      InMemoryCandleRepository repository) {
+                                      CandleRepository repository) {
         this.aggregationService = aggregationService;
         this.repository = repository;
     }

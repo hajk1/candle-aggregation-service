@@ -2,6 +2,7 @@ package com.multibank.candle.infrastructure.config;
 
 import com.multibank.candle.application.CandleAggregationService;
 import com.multibank.candle.domain.model.BidAskEvent;
+import com.multibank.candle.domain.port.CandleRepository;
 import com.multibank.candle.infrastructure.storage.InMemoryCandleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("AggregationHealthIndicator")
 class AggregationHealthIndicatorTest {
 
-    private InMemoryCandleRepository repository;
+    private CandleRepository repository;
     private CandleAggregationService aggregationService;
     private AggregationHealthIndicator indicator;
 

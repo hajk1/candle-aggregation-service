@@ -4,6 +4,7 @@ import com.multibank.candle.domain.model.Candle;
 import com.multibank.candle.domain.model.CandleKey;
 import com.multibank.candle.domain.model.Interval;
 import com.multibank.candle.domain.port.CandleRepository;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * rather than a full O(n) scan. Both maps are lock-free for reads and thread-safe for writes.
  */
 @Repository
+@Profile("!timescale")
 public class InMemoryCandleRepository implements CandleRepository {
 
     // Composite key for the outer map — avoids string concatenation

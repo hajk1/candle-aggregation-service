@@ -14,8 +14,11 @@ import java.util.List;
  */
 public interface CandleRepository {
 
-    /** Persists (or overwrites) a finalized candle. Must be thread-safe. */
+    /** Persists (or merges) a finalized candle. Must be thread-safe. */
     void save(CandleKey key, Candle candle);
+
+    /** Returns the total number of finalized candles stored. Used for health reporting. */
+    int size();
 
     /**
      * Returns all candles for the given symbol and interval whose {@code time}
