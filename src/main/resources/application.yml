@@ -23,6 +23,7 @@ candle:
     grace-period-seconds: 2  # hold buckets open this long after close to absorb delayed events
 
 simulator:
+  enabled: true         # set to false when plugging in a real feed (Kafka, WebSocket, etc.)
   rate-ms: 50           # 20 ticks/second total (~6-7 per symbol) — demonstrates high-frequency ingestion
   symbols: BTC-USD,ETH-USD,SOL-USD
 
